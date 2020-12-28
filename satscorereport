@@ -1,0 +1,311 @@
+import sqlite3
+import csv
+
+sfile = input('Enter Student File: ')
+if (len(sfile) < 1): sfile = 'Phelps SAT'
+exam = input('Enter Exam (ex. SAT 85): ')
+if (len(exam) < 1): exam = 'SAT 1'
+
+# Connects to exam-specific DB
+conn = sqlite3.connect(exam + '.sqlite')
+cur = conn.cursor()
+
+# Connects to SAT Master DB
+# Adds 1 to Administrations in SAT Master DB
+connsat = sqlite3.connect('SAT Master DB.sqlite')
+cursat = connsat.cursor()
+cursat.execute('''UPDATE Exams SET Administrations = Administrations + 1 WHERE Exam=?''', (exam,))
+connsat.commit()
+
+# Check Reading Section
+# Open Student's answer csv file
+with open(sfile + '.csv', 'r') as csv_file:
+    csv_reader = csv.reader(csv_file)
+    print('\nREADING')
+    cur.execute('SELECT * FROM Reading ORDER BY Question DESC LIMIT 1')
+    numofquest = cur.fetchone()[0]
+    print('Total: ', numofquest)
+    qnum = 0
+    readraw = 0
+    readinc = list()
+    # print('\nQuestions')
+    for line in csv_reader:
+        if line[0] == 'Question': continue
+        if not line[1] and qnum >= 52: break
+        qnum = qnum + 1
+        # Can enable below for debugging
+        # print(qnum)
+        stu_readans = line[1]
+        # print('Stu: ', stu_readans)
+        cur.execute('SELECT Answer FROM Reading WHERE Question = ? LIMIT 1', (qnum,))
+        key_readans = cur.fetchone()[0]
+        # print('Key: ', key_readans)
+        if stu_readans == key_readans:
+            # print('CORRECT')
+            readraw = readraw + 1
+        else:
+            # print('INCORRECT')
+            readinc.append(line[0])
+    print('Raw: ', readraw)
+    print('Incorrect: ', readinc)
+    # Increment Missed question count in exam db.
+    for quest in readinc:
+        # print(quest)
+        cur.execute('''UPDATE Reading SET Missed = Missed + 1 WHERE Question=?''', (int(quest),))
+        conn.commit()
+
+# Check Writing Section
+with open(sfile + '.csv', 'r') as csv_file:
+    csv_reader = csv.reader(csv_file)
+    print('\nWRITING')
+    cur.execute('SELECT * FROM Writing ORDER BY Question DESC LIMIT 1')
+    numofquest = cur.fetchone()[0]
+    print('Total: ', numofquest)
+    qnum = 0
+    wraw = 0
+    writeinc = list()
+    # print('\nQuestions')
+    for line in csv_reader:
+        if line[0] == 'Question': continue
+        if not line[2] and qnum >= 44: break
+        qnum = qnum + 1
+        # Can enable below for debugging
+        # print(qnum)
+        stu_wans = line[2]
+        # print('Stu: ', stu_wans)
+        cur.execute('SELECT Answer FROM Writing WHERE Question = ? LIMIT 1', (qnum,))
+        key_wans = cur.fetchone()[0]
+        # print('Key: ', key_wans)
+        if stu_wans == key_wans:
+            # print('CORRECT')
+            wraw = wraw + 1
+        else:
+            # print('INCORRECT')
+            writeinc.append(line[0])
+    print('Raw: ', wraw)
+    print('Incorrect: ', writeinc)
+    # Increment Missed question count in exam db.
+    for quest in writeinc:
+        # print(quest, type(quest))
+        cur.execute('''UPDATE Writing SET Missed = Missed + 1 WHERE Question=?''', (int(quest),))
+        conn.commit()
+
+# Check Math Section
+# Math No Calc Section
+with open(sfile + '.csv', 'r') as csv_file:
+    csv_reader = csv.reader(csv_file)
+    print('\nMATH')
+    print('No Calculator')
+    cur.execute('SELECT * FROM Mathnc ORDER BY ncQuestion DESC LIMIT 1')
+    numofquest = cur.fetchone()[0]
+    print('Total: ', numofquest)
+    qnum = 0
+    mathncraw = 0
+    mathncinc = list()
+    # print('\nQuestions')
+    for line in csv_reader:
+        if line[0] == 'Question': continue
+        if qnum >= 20: break
+        # if not line[3] and qnum >= 20: break
+        qnum = qnum + 1
+        # Can enable below for debugging
+        # print(qnum)
+
+        # Check Mutiple Choice Answers
+        if not line[3]: # If blank, count as wrong.
+            # print('INCORRECT')
+            mathncinc.append(line[0])
+        if line[3].isalpha():
+            stu_mathncans = line[3]
+            # print('Stu: ', stu_mathncans)
+            cur.execute('SELECT ncAnswer FROM Mathnc WHERE ncQuestion = ? LIMIT 1', (qnum,))
+            key_mathncans = cur.fetchone()[0]
+            # print('Key: ', key_mathncans)
+            if stu_mathncans == key_mathncans:
+                # print('CORRECT')
+                mathncraw = mathncraw + 1
+            else:
+                # print('INCORRECT')
+                mathncinc.append(line[0])
+
+        # Check Student-Produced Answers
+        else:
+            cur.execute('SELECT ncAnswer FROM Mathnc WHERE ncQuestion = ? LIMIT 1', (qnum,))
+            choices = cur.fetchone()[0]
+            cleanchoicelist = list() # This is being used.
+            cleanfloatlist = list() # Is this being used?
+            stu_mathncans = line[3]
+
+            # Print student answer and key answer.
+            # print('Stu:', stu_mathncans, type(stu_mathncans))
+            # print('Key:', choices, type(choices), len(choices))
+
+            # If just 1 answer choice, evaluate.
+            if ',' not in choices:
+                # print('Only one answer')
+                if stu_mathncans==choices:
+                    # print('CORRECT')
+                    mathncraw = mathncraw + 1
+                else:
+                    # print('INCORRECT')
+                    mathncinc.append(line[0])
+                    if '<' or '>' in choices: # If has < >, prevent it from still being read as 1 answer choice because no comma.
+                        continue
+
+            # If not just 1 answer choice, need to handle many possible situations.
+            else:
+                choicelist = choices.split (",")
+                for item in choicelist:
+                    cleanitem = item.lstrip()
+                    cleanchoicelist.append(cleanitem)
+                    # print(cleanchoicelist)
+                # Clean up student decimal answers from 0.5 --> .5 so can compare strings
+                # This will likely lead to problems in the future for both student's and Annie's csv's because auto formatting putting the 0 in front of decimal.
+                # For now, assume that there will be automatic "0." added.
+                if stu_mathncans[0:2] == '0.':
+                    # print('Note: sliced decimal') # <-- This is a good check.
+                    sliceddec = stu_mathncans[1:]
+                if stu_mathncans in cleanchoicelist:
+                    # print('CORRECT')
+                    mathncraw = mathncraw + 1
+                ## Not sure what use of sliceddec is.
+                # try: # Accounts for sliced decimals
+                #     if sliceddec in cleanchoicelist:
+                #         print('CORRECT')
+                #     mathncraw = mathncraw + 1
+                # except: continue
+                else:
+                    # print('INCORRECT')
+                    mathncinc.append(line[0])
+    # Increment Missed question count in exam db.
+    for quest in mathncinc:
+        # print(quest, type(quest))
+        cur.execute('''UPDATE Mathnc SET Missed = Missed + 1 WHERE ncQuestion=?''', (int(quest),))
+        conn.commit()
+
+    print('Raw: ', mathncraw)
+    print('Incorrect: ', mathncinc)
+
+# Math Calc Section
+with open(sfile + '.csv', 'r') as csv_file:
+    csv_reader = csv.reader(csv_file)
+    print('\nCalculator')
+    cur.execute('SELECT * FROM Mathc ORDER BY cQuestion DESC LIMIT 1')
+    numofquest = cur.fetchone()[0]
+    print('Total: ', numofquest)
+    qnum = 0
+    mathcraw = 0
+    mathcinc = list()
+    ineq = list()
+    # print('\nQuestions')
+    for line in csv_reader:
+        if line[0] == 'Question': continue
+        if qnum >= 38: break
+        qnum = qnum + 1
+        # Can enable below for debugging
+        # print(qnum)
+
+        # Check Multiple Choice Answers
+        if not line[4]: # If blank, count as wrong.
+            # print('INCORRECT')
+            mathcinc.append(line[0])
+        if line[4].isalpha():
+            stu_mathcans = line[4]
+            # print('Stu: ', stu_mathcans)
+            cur.execute('SELECT cAnswer FROM Mathc WHERE cQuestion = ? LIMIT 1', (qnum,))
+            key_mathcans = cur.fetchone()[0]
+            # print('Key: ', key_mathcans)
+            if stu_mathcans == key_mathcans:
+                # print('CORRECT')
+                mathcraw = mathcraw + 1
+            else:
+                # print('INCORRECT')
+                mathcinc.append(line[0])
+
+        # Check Student-Produced Answers
+        else:
+            cur.execute('SELECT cAnswer FROM Mathc WHERE cQuestion = ? LIMIT 1', (qnum,))
+            choices = cur.fetchone()[0]
+            cleanchoicelist = list() # This is being used.
+            cleanfloatlist = list() # Is this being used?
+            stu_mathcans = line[4]
+
+            # Print student answer and key answer.
+            # print('Stu:', stu_mathcans, type(stu_mathcans))
+            # print('Key:', choices, type(choices), len(choices))
+
+            if ">" in choices or "<" in choices:
+                ineq.append(choices)
+                # print(ineq)
+
+            # If just 1 answer choice, evaluate.
+            if ',' not in choices:
+                # print('Only one answer')
+                if stu_mathcans==choices:
+                    # print('CORRECT')
+                    mathcraw = mathcraw + 1
+                else:
+                    # print('INCORRECT')
+                    mathcinc.append(line[0])
+                    if '<' or '>' in choices: # If has < >, prevent it from still being read as 1 answer choice because no comma.
+                        continue
+            # If not just 1 answer choice, need to handle many possible situations.
+            else:
+                choicelist = choices.split (",")
+                for item in choicelist:
+                    cleanitem = item.lstrip()
+                    cleanchoicelist.append(cleanitem)
+                    # print(cleanchoicelist)
+            # Clean up student decimal answers from 0.5 --> .5 so can compare strings
+            ## This will likely lead to problems in the future for both student's and Annie's csv's because auto formatting putting the 0 in front of decimal.
+            ## Assume that there will be automatic "0." added.
+                if stu_mathcans[0:2] == '0.':
+                        # print('Note: sliced decimal') # <-- This is a good check.
+                        sliceddec = stu_mathcans[1:]
+                if stu_mathcans in cleanchoicelist:
+                    # print('CORRECT')
+                    mathcraw = mathcraw + 1
+                else:
+                    # print('INCORRECT')
+                    mathcinc.append(line[0])
+
+    # Increment Missed question count in exam db.
+    for quest in mathcinc:
+        # print(quest, type(quest))
+        cur.execute('''UPDATE Mathc SET Missed = Missed + 1 WHERE cQuestion=?''', (int(quest),))
+        conn.commit()
+
+print('Raw:', mathcraw)
+print('Incorrect: ', mathcinc)
+
+mathraw = mathcraw + mathncraw
+print('\nThe following inequality appears in answer key:', ineq)
+print('Math Total Raw:', mathraw)
+
+# Calculate Scaled scores
+print('\n\nSCALED SCORES')
+# Reading
+try:
+    cur.execute('SELECT Score FROM Reading WHERE Raw = ? ', (readraw,))
+    readscaled = cur.fetchone()[0]
+    readscaled10 = readscaled * 10
+    print('Reading:', readscaled10)
+except:
+    print('Reading: Error. Confirm Student answer data.')
+# Writing
+try:
+    cur.execute('SELECT Score FROM Writing WHERE Raw = ? ', (wraw,))
+    wscaled = cur.fetchone()[0]
+    wscaled10 = wscaled * 10
+    print('Writing:', wscaled10)
+except:
+    print('Writing: Error. Confirm Student answer data.')
+print('R & W: ', wscaled10 + readscaled10)
+# Math
+try:
+    cur.execute('SELECT Score FROM MathConv WHERE Raw = ? ', (mathraw,))
+    mathscaled = cur.fetchone()[0]
+    print('Math:', mathscaled)
+except:
+    print('Math: Error. Confirm Student answer data.')
+print('\nTotal: ', wscaled10 + readscaled10 + mathscaled, '\n')
