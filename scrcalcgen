@@ -1,0 +1,290 @@
+import sqlite3
+import csv
+import sys
+
+dbnametype = input('Enter SAT or ACT: ')
+if (len(dbnametype) < 1): dbnametype = 'ACT'
+dbnamenum = input('Enter Cram Number: ')
+if (len(dbnamenum) < 1): dbnamenum = '1'
+fname = input('Enter file name: ')
+if (len(fname) < 1): fname = 'Annie ACT Sample 1 copy'
+
+## Replicating this block in both SAT and ACT blocks.
+## Don't want exam-specific DB created if CSV has errors.
+## Delete this block later if no problems.
+# examroot = dbnametype + ' ' + dbnamenum + '.sqlite'
+# examname = dbnametype + ' ' + dbnamenum
+# conn = sqlite3.connect(examroot)
+# cur = conn.cursor()
+
+# SAT
+
+if dbnametype == 'SAT':
+
+    # Confirm equal number entries in Reading Answers and Reading Scaled Score.
+    # This is required for Score Report to produce scaled scores.
+    # User needs to enter data into CSV correctly.
+    with open(fname + '.csv', 'r') as csv_file:
+        csv_reader = csv.reader(csv_file)
+        for line in csv_reader:
+            if line[0] == 'Question': continue
+            # Above is a more specific guardian than "if len(line[1])>1: continue"
+            # Need to make sure all of Reading answers logged. Don't stop earlier when other sections return a blank.
+            if not line[1] and line[6]:
+                print('Confirm Reading Answer and Score columns equal')
+                sys.exit()
+            if not line[2] and line[7]:
+                print('Confirm Writing Answer and Score columns equal')
+                sys.exit()
+
+    # Create exam-specific DB
+    examroot = dbnametype + ' ' + dbnamenum + '.sqlite'
+    examname = dbnametype + ' ' + dbnamenum
+    conn = sqlite3.connect(examroot)
+    cur = conn.cursor()
+
+    # Create SAT Master DB. Add exam to DB.
+    # cursat accesses SAT Master DB
+    connsat = sqlite3.connect('SAT Master DB.sqlite')
+    cursat = connsat.cursor()
+    cursat.execute('CREATE TABLE IF NOT EXISTS Exams (Exam TEXT, Administrations INTEGER DEFAULT 0, Notes TEXT)')
+    cursat.execute('''SELECT Exam FROM Exams WHERE Exam=?''', (examname,))
+    check = cursat.fetchone()
+    connsat.commit()
+
+    if check:
+        replace = input('Exam exists already. Replace? (Enter Y/N)')
+        if replace == 'Y':
+            # Update the SAT Master DB
+            cursat.execute('''UPDATE Exams SET Exam=? WHERE Exam=?''', (examname, examname,))
+            # Create tables and input exam data.
+            cur.execute('DROP TABLE IF EXISTS Reading')
+            cur.execute('DROP TABLE IF EXISTS Writing')
+            cur.execute('DROP TABLE IF EXISTS Mathnc')
+            cur.execute('DROP TABLE IF EXISTS Mathc')
+            cur.execute('DROP TABLE IF EXISTS MathConv')
+            cur.execute('''CREATE TABLE Reading (Question INTEGER, Answer TEXT, Raw INTEGER, Score INTEGER, Missed INTEGER DEFAULT 0, Tags TEXT, Notes TEXT)''')
+            cur.execute('''CREATE TABLE Writing (Question INTEGER, Answer TEXT, Raw INTEGER, Score INTEGER, Missed INTEGER DEFAULT 0, Tags TEXT, Notes TEXT)''')
+            cur.execute('''CREATE TABLE Mathnc (ncQuestion INTEGER, ncAnswer TEXT, Missed INTEGER DEFAULT 0, Tags TEXT, Notes TEXT)''')
+            cur.execute('''CREATE TABLE Mathc (cQuestion INTEGER, cAnswer TEXT, Missed INTEGER DEFAULT 0, Tags TEXT, Notes TEXT)''')
+            cur.execute('''CREATE TABLE MathConv (Raw INTEGER, Score INTEGER)''')
+            conn.commit()
+        if replace =='N':
+            print('Confirm current exam sqlite file reflects most updated version.')
+    else:
+        cursat.execute('''INSERT INTO Exams (Exam)
+        VALUES (?)''', (examname,))
+        connsat.commit()
+
+        # Create tables and input exam data.
+        cur.execute('DROP TABLE IF EXISTS Reading')
+        cur.execute('DROP TABLE IF EXISTS Writing')
+        cur.execute('DROP TABLE IF EXISTS Mathnc')
+        cur.execute('DROP TABLE IF EXISTS Mathc')
+        cur.execute('DROP TABLE IF EXISTS MathConv')
+        cur.execute('''CREATE TABLE Reading (Question INTEGER, Answer TEXT, Raw INTEGER, Score INTEGER, Missed INTEGER DEFAULT 0, Tags TEXT, Notes TEXT)''')
+        cur.execute('''CREATE TABLE Writing (Question INTEGER, Answer TEXT, Raw INTEGER, Score INTEGER, Missed INTEGER DEFAULT 0, Tags TEXT, Notes TEXT)''')
+        cur.execute('''CREATE TABLE Mathnc (ncQuestion INTEGER, ncAnswer TEXT, Missed INTEGER DEFAULT 0, Tags TEXT, Notes TEXT)''')
+        cur.execute('''CREATE TABLE Mathc (cQuestion INTEGER, cAnswer TEXT, Missed INTEGER DEFAULT 0, Tags TEXT, Notes TEXT)''')
+        cur.execute('''CREATE TABLE MathConv (Raw INTEGER, Score INTEGER)''')
+        conn.commit()
+
+
+
+    # Populate data for Reading Section
+    with open(fname + '.csv', 'r') as csv_file:
+        csv_reader = csv.reader(csv_file)
+        rcount = 0
+        for line in csv_reader:
+            if line[0] == 'Question': continue
+            # Above is a more specific guardian than "if len(line[1])>1: continue"
+            # Need to make sure all of Reading answers logged. Don't stop earlier when other sections return a blank.
+            if not line[1]: break
+            rans = line[1]
+            rcount = rcount + 1
+            rraw = line[5]
+            rscore = line[6]
+            cur.execute('''INSERT INTO Reading (Question, Answer, Raw, Score)
+                VALUES (?, ?, ?, ?)''', (rcount, rans, rraw, rscore))
+    # Populate data for Writing Section
+    with open(fname + '.csv', 'r') as csv_file:
+        csv_reader = csv.reader(csv_file)
+        wcount = 0
+        for line in csv_reader:
+            if line[0] == 'Question': continue
+            if not line[2]: break
+            wans = line[2]
+            wcount = wcount + 1
+            wraw = line[5]
+            wscore = line[7]
+            cur.execute('''INSERT INTO Writing (Question, Answer, Raw, Score)
+                VALUES (?, ?, ?, ?)''', (wcount, wans, wraw, wscore))
+
+    # Populate data for Math No Calc Section
+    with open(fname + '.csv', 'r') as csv_file:
+        csv_reader = csv.reader(csv_file)
+        mnccount = 0
+        for line in csv_reader:
+            if line[0] == 'Question': continue
+            if not line[3]: break
+            mncans = line[3]
+            mnccount = mnccount + 1
+            cur.execute('''INSERT INTO Mathnc (ncQuestion, ncAnswer)
+                VALUES (?, ?)''', (mnccount, mncans))
+
+    # Populate data for Math Calc Section
+    with open(fname + '.csv', 'r') as csv_file:
+        csv_reader = csv.reader(csv_file)
+        mccount = 0
+        for line in csv_reader:
+            if line[0] == 'Question': continue
+            if not line[4]: break
+            mcans = line[4]
+            mccount = mccount + 1
+            cur.execute('''INSERT INTO Mathc (cQuestion, cAnswer)
+                VALUES (?, ?)''', (mccount, mcans))
+
+    # Populate data for Math Score Conversion
+    with open(fname + '.csv', 'r') as csv_file:
+        csv_reader = csv.reader(csv_file)
+        for line in csv_reader:
+            if line[0] == 'Question': continue
+            if not line[5]: break
+            mraw = line[5]
+            mscore = line[8]
+            cur.execute('''INSERT INTO MathConv (Raw, Score)
+                VALUES (?, ?)''', (mraw, mscore))
+
+    conn.commit()
+
+
+# ACT
+
+if dbnametype == 'ACT':
+
+    # Confirm equal number entries in Reading Answers and Reading Scaled Score.
+    # This is required for Score Report to produce scaled scores.
+    # User needs to enter data into CSV correctly.
+    with open(fname + '.csv', 'r') as csv_file:
+        csv_reader = csv.reader(csv_file)
+        for line in csv_reader:
+            if line[0] == 'Question': continue
+            # Above is a more specific guardian than "if len(line[1])>1: continue"
+            # Need to make sure all of Reading answers logged. Don't stop earlier when other sections return a blank.
+            if not line[1] and line[6]:
+                print('Confirm English Answer and Score columns equal')
+                sys.exit()
+            if not line[2] and line[7]:
+                print('Confirm Math Answer and Score columns equal')
+                sys.exit()
+            if not line[3] and line[8]:
+                print('Confirm Reading Answer and Score columns equal')
+                sys.exit()
+            if not line[4] and line[9]:
+                print('Confirm Science Answer and Score columns equal')
+                sys.exit()
+
+    # Create exam-specific DB
+    examroot = dbnametype + ' ' + dbnamenum + '.sqlite'
+    examname = dbnametype + ' ' + dbnamenum
+    conn = sqlite3.connect(examroot)
+    cur = conn.cursor()
+    
+    # Create ACT Master DB. Add exam to DB.
+    connact = sqlite3.connect('ACT Master DB.sqlite')
+    curact = connact.cursor()
+    curact.execute('CREATE TABLE IF NOT EXISTS Exams (Exam TEXT, Administrations INTEGER DEFAULT 0, Notes TEXT)')
+    curact.execute('''SELECT Exam FROM Exams WHERE Exam=?''', (examname,))
+    check = curact.fetchone()
+    connact.commit()
+
+    if check:
+        replace = input('Exam exists already. Replace? (Enter Y/N)')
+        if replace == 'Y':
+            # Update the ACT Master DB
+            curact.execute('''UPDATE Exams SET Exam=? WHERE Exam=?''', (examname, examname,))
+            # Create tables and input exam data.
+            cur.execute('DROP TABLE IF EXISTS English')
+            cur.execute('DROP TABLE IF EXISTS Math')
+            cur.execute('DROP TABLE IF EXISTS Reading')
+            cur.execute('DROP TABLE IF EXISTS Science')
+            cur.execute('''CREATE TABLE English (Question INTEGER, Answer TEXT, Raw INTEGER, Score INTEGER, Missed INTEGER DEFAULT 0, Tags TEXT, Notes TEXT)''')
+            cur.execute('''CREATE TABLE Math (Question INTEGER, Answer TEXT, Raw INTEGER, Score INTEGER, Missed INTEGER DEFAULT 0, Tags TEXT, Notes TEXT)''')
+            cur.execute('''CREATE TABLE Reading (Question INTEGER, Answer TEXT, Raw INTEGER, Score INTEGER, Missed INTEGER DEFAULT 0, Tags TEXT, Notes TEXT)''')
+            cur.execute('''CREATE TABLE Science (Question INTEGER, Answer TEXT, Raw INTEGER, Score INTEGER, Missed INTEGER DEFAULT 0, Tags TEXT, Notes TEXT)''')
+            conn.commit()
+        if replace =='N':
+            print('Confirm current exam sqlite file reflects most updated version.')
+    else:
+        # Update the ACT Master DB
+        curact.execute('''INSERT INTO Exams (Exam)
+        VALUES (?)''', (examname,))
+        connact.commit()
+        # Create tables and input exam data.
+        cur.execute('DROP TABLE IF EXISTS English')
+        cur.execute('DROP TABLE IF EXISTS Math')
+        cur.execute('DROP TABLE IF EXISTS Reading')
+        cur.execute('DROP TABLE IF EXISTS Science')
+        cur.execute('''CREATE TABLE English (Question INTEGER, Answer TEXT, Raw INTEGER, Score INTEGER, Missed INTEGER DEFAULT 0, Tags TEXT, Notes TEXT)''')
+        cur.execute('''CREATE TABLE Math (Question INTEGER, Answer TEXT, Raw INTEGER, Score INTEGER, Missed INTEGER DEFAULT 0, Tags TEXT, Notes TEXT)''')
+        cur.execute('''CREATE TABLE Reading (Question INTEGER, Answer TEXT, Raw INTEGER, Score INTEGER, Missed INTEGER DEFAULT 0, Tags TEXT, Notes TEXT)''')
+        cur.execute('''CREATE TABLE Science (Question INTEGER, Answer TEXT, Raw INTEGER, Score INTEGER, Missed INTEGER DEFAULT 0, Tags TEXT, Notes TEXT)''')
+        conn.commit()
+
+
+    ecount = 0
+    mcount = 0
+    rcount = 0
+    scount = 0
+
+    # Populate data for English Section
+    with open(fname + '.csv', 'r') as csv_file:
+        csv_reader = csv.reader(csv_file)
+        for line in csv_reader:
+
+            if line[0] == 'Question': continue
+            if not line[1]: break
+            ecount = ecount + 1
+            eans = line[1]
+            eraw = line[5]
+            escore = line[6]
+            cur.execute('''INSERT INTO English (Question, Answer, Raw, Score)
+                VALUES (?, ?, ?, ?)''', (ecount, eans, eraw, escore))
+    # Populate data for Math Section
+    with open(fname + '.csv', 'r') as csv_file:
+        csv_reader = csv.reader(csv_file)
+        for line in csv_reader:
+            if line[0] == 'Question': continue
+            if not line[2]: break
+            mcount = mcount + 1
+            mans = line[2]
+            mraw = line[5]
+            mscore = line[7]
+            cur.execute('''INSERT INTO Math (Question, Answer, Raw, Score)
+                VALUES (?, ?, ?, ?)''', (mcount, mans, mraw, mscore))
+    # Populate data for Reading Section
+    with open(fname + '.csv', 'r') as csv_file:
+        csv_reader = csv.reader(csv_file)
+        for line in csv_reader:
+            if line[0] == 'Question': continue
+            if not line[3]: break
+            rcount = rcount + 1
+            rans = line[3]
+            rraw = line[5]
+            rscore = line[8]
+            cur.execute('''INSERT INTO Reading (Question, Answer, Raw, Score)
+                VALUES (?, ?, ?, ?)''', (rcount, rans, rraw, rscore))
+    # Populate data for Science Section
+    with open(fname + '.csv', 'r') as csv_file:
+        csv_reader = csv.reader(csv_file)
+        for line in csv_reader:
+            if line[0] == 'Question': continue
+            if not line[4]: break
+            scount = scount + 1
+            sans = line[4]
+            sraw = line[5]
+            sscore = line[9]
+            cur.execute('''INSERT INTO Science (Question, Answer, Raw, Score)
+                VALUES (?, ?, ?, ?)''', (scount, sans, sraw, sscore))
+
+    conn.commit()
