@@ -1,0 +1,41 @@
+import os, glob
+import pandas as pd
+import sqlite3
+
+session = input('Enter Directory: ')
+if (len(session) < 1): session = 'Test Directory'
+path0 = "/Users/johnnyyang/Documents/Grad School/Programming/Streamline/Streamline v4.1/"
+path1 = "/Users/johnnyyang/Documents/Grad School/Programming/Streamline/Streamline v4.1/" + session
+
+exam = input('Enter Exam (ex. SAT 85): ')
+if (len(exam) < 1): exam = 'SAT 1'
+
+# Collect all student answers into one df.
+all_files = glob.glob(os.path.join(path1,"*.csv")) # Access all student csv's in directory.
+print(all_files) # Shows all student csv files in directory.
+all_df = []
+for f in all_files:
+    df = pd.read_csv(f, sep=',')
+    df['file'] = f.split('/')[-1] # Shows 'file' column in dataframe.
+    all_df.append(df)
+# print(all_df, type(all_df), len(all_df))
+# Merge both files
+merged_df = pd.concat(all_df, ignore_index = "True", sort = "True")
+print(merged_df, type(merged_df))
+
+# Transfer exam answer key from sqlite db to pandas df.
+# Read sqlite query results into a pandas DataFrame
+conn = sqlite3.connect(exam + '.sqlite')
+cur = conn.cursor()
+dfreadkey = pd.read_sql_query("SELECT * from Reading", conn)
+dfwritekey = pd.read_sql_query("SELECT * from Writing", conn)
+dfmathnckey = pd.read_sql_query("SELECT * from Mathnc", conn)
+dfmathckey = pd.read_sql_query("SELECT * from Mathc", conn)
+dfmathconv = pd.read_sql_query("SELECT * from MathConv", conn)
+# Verify that result of SQL query is stored in the dataframe
+print(dfreadkey.head())
+print(dfwritekey.head())
+print(dfmathnckey.head())
+print(dfmathckey.head())
+print(dfmathconv.head())
+conn.close()
